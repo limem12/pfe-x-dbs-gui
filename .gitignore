@@ -1,0 +1,29 @@
+﻿# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies and generated files
+node_modules/
+.next/
+dist/
+build/
+coverage/
+*.log
+
+# Runtime data
+uploads/
+*.sqlite
+
+# Database dumps and local artefacts
+backup_*.sql
+*.bak
+tmp/
+
+# Editor and operating system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+*.tsbuildinfo

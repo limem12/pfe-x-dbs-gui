@@ -1,0 +1,121 @@
+﻿services:
+  # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  # PostgreSQL
+  # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  xdbs-db:
+    image: postgres:15-alpine
+    container_name: xdbs-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - app-network
+
+  # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  # Database Init / Migration
+  # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  xdbs-db-init:
+    image: postgres:15-alpine
+    container_name: xdbs-db-init
+    depends_on:
+      xdbs-db:
+        condition: service_healthy
+    environment:
+      DB_HOST: xdbs-db
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - ./database:/sql:ro
+    command: ["sh", "/sql/init-all.sh"]
+    restart: "no"
+    networks:
+      - app-network
+
+  # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  # Backend API
+  # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  xdbs-backend:
+    build:
+      context: ./backend/dbs-api
+      dockerfile: Dockerfile
+    container_name: xdbs-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV}
+      JWT_SECRET: ${JWT_SECRET}
+      PORT: ${BACKEND_INTERNAL_PORT}
+      SWAGGER_HOST: ${SWAGGER_HOST}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      DB_HOST: xdbs-db
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB}
+    ports:
+      - "${BACKEND_PORT}:${BACKEND_INTERNAL_PORT}"
+    volumes:
+      - ./backend/dbs-api/uploads:/app/uploads
+    depends_on:
+      xdbs-db:
+        condition: service_healthy
+      xdbs-db-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://127.0.0.1:' + (process.env.PORT || 3001) + '/api/docs', res => process.exit(res.statusCode >= 200 && res.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - app-network
+
+  # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  # Frontend (Next.js)
+  # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  xdbs-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+    container_name: xdbs-frontend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+    command: sh -c "npm run start -- -H 0.0.0.0 -p 3000"
+    ports:
+      - "${FRONTEND_PORT}:3000"
+    depends_on:
+      xdbs-backend:
+        condition: service_healthy
+    networks:
+      - app-network
+
+volumes:
+  postgres_data:
+
+networks:
+  app-network:
+    driver: bridge
+
